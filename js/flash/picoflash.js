@@ -8,7 +8,7 @@
 
 import { Picoboot } from '/pkg/picoboot.js';
 import { Connection } from '/pkg/connection.js';
-import { uf2ToFlashBuffer } from '/js/uf2/uf2.js';
+import { uf2ToFlashRegions } from '/js/uf2/uf2.js';
 import { PicobootStatusCmd } from '/pkg/commands.js';
 
 //
@@ -550,9 +550,12 @@ function updateFileElements(firmwareData) {
         fileName.textContent = firmwareData.name || 'Loaded Firmware';
         const fileType = firmwareData.fileType || 'bin';
         if (fileType === 'uf2') {
-            fileSize.textContent = `${formatBytes(firmwareData.origSize)} (UF2) → ${formatBytes(firmwareData.data.length)} (flash)`;
+            const regionSuffix = firmwareData.regions && firmwareData.regions.length > 1
+                ? ` across ${firmwareData.regions.length} regions`
+                : '';
+            fileSize.textContent = `${formatBytes(firmwareData.origSize)} (UF2) → ${formatBytes(firmwareData.totalDataBytes)} (flash)${regionSuffix}`;
         } else {
-            fileSize.textContent = formatBytes(firmwareData.data.length);
+            fileSize.textContent = formatBytes(firmwareData.totalDataBytes);
         }
         fileInfo.classList.remove('hidden');
     } else {
@@ -1103,10 +1106,25 @@ async function handleFlashFile(file) {
         
         if (ext === 'uf2') {
             console.log(`Processing UF2 file ${file.name}...`);
-            const { address, data } = uf2ToFlashBuffer(fileData);
-            firmwareData = { name: file.name, address, data, origSize, fileType: 'uf2' };
+            const regions = uf2ToFlashRegions(fileData);
+            const totalDataBytes = regions.reduce((n, r) => n + r.data.length, 0);
+            // `address` + `data` are retained for the single-region case so any
+            // legacy UI / advanced-tab code that reads them still works. For
+            // multi-region UF2s, the flash hot path walks `regions` instead.
+            firmwareData = {
+                name: file.name,
+                regions,
+                totalDataBytes,
+                address: regions[0].address,
+                data: regions[0].data,
+                origSize,
+                fileType: 'uf2',
+            };
 
-            logActivity(`Loaded UF2: ${firmwareData.name} - flash ${formatBytes(firmwareData.data.length)} at address 0x${firmwareData.address.toString(16)}`, 'success');
+            const summary = regions.length === 1
+                ? `flash ${formatBytes(totalDataBytes)} at 0x${regions[0].address.toString(16)}`
+                : `flash ${formatBytes(totalDataBytes)} across ${regions.length} regions (starting 0x${regions[0].address.toString(16)})`;
+            logActivity(`Loaded UF2: ${firmwareData.name} - ${summary}`, 'success');
         } else {
             console.log(`Loading binary file ${file.name}...`);
             let flash_base;
@@ -1116,9 +1134,17 @@ async function handleFlashFile(file) {
                 flash_base = 0x10000000;
             }
             console.log(`Using flash base address: 0x${flash_base.toString(16)}`);
-            firmwareData = { name: file.name, address: flash_base, data: fileData, origSize, fileType: 'bin' };
+            firmwareData = {
+                name: file.name,
+                regions: [{ address: flash_base, data: fileData }],
+                totalDataBytes: fileData.length,
+                address: flash_base,
+                data: fileData,
+                origSize,
+                fileType: 'bin',
+            };
 
-            logActivity(`Loaded firmware: ${firmwareData.name} (${formatBytes(firmwareData.data.length)})`, 'success');
+            logActivity(`Loaded firmware: ${firmwareData.name} (${formatBytes(firmwareData.totalDataBytes)})`, 'success');
         }
         updateStatus('Firmware loaded');
     } catch (error) {
@@ -1138,8 +1164,13 @@ async function handleFlashFile(file) {
  */
 function updateFirmwareData() {
     if (connected() && firmwareData && firmwareData.fileType === 'bin') {
-        firmwareData.address = picoboot.getTarget().flashStart();
-        console.log(`Firmware data address updated to 0x${firmwareData.address.toString(16)}`);
+        const newAddr = picoboot.getTarget().flashStart();
+        firmwareData.address = newAddr;
+        // BIN files always have exactly one region; keep it in sync too.
+        if (firmwareData.regions && firmwareData.regions.length > 0) {
+            firmwareData.regions[0].address = newAddr;
+        }
+        console.log(`Firmware data address updated to 0x${newAddr.toString(16)}`);
     }
 }
 
@@ -1158,23 +1189,37 @@ flashBtn.addEventListener('click', async () => {
         return;
     }
 
-    // Set up progress bar handling and calculate timeout
-    const progressInterval = setupProgressInterval(firmwareData.data.length, FLASH_SPEED);
-    const timeoutMs = calcTimeout(firmwareData.data.length, FLASH_SPEED);
+    // Set up progress bar handling and calculate timeout based on TOTAL bytes
+    // across all regions. Each region gets its own per-region timeout when
+    // flashEraseAndWrite is called below.
+    const totalBytes = firmwareData.totalDataBytes;
+    const progressInterval = setupProgressInterval(totalBytes, FLASH_SPEED);
 
     // Disable the flash button to prevent multiple clicks
     updateFlashBtns('flash');
 
     try {
-        logActivity(`Flashing ${firmwareData.name} (${formatBytes(firmwareData.data.length)})...`, 'info');
-        await withTimeout(
-            async () => picoboot.flashEraseAndWrite(firmwareData.address, firmwareData.data),
-            timeoutMs,
-            `Flash write`
-        );
+        const regions = firmwareData.regions;
+        const summary = regions.length === 1
+            ? `${formatBytes(totalBytes)}`
+            : `${formatBytes(totalBytes)} across ${regions.length} regions`;
+        logActivity(`Flashing ${firmwareData.name} (${summary})...`, 'info');
+
+        for (let i = 0; i < regions.length; i++) {
+            const r = regions[i];
+            const label = regions.length === 1
+                ? 'Flash write'
+                : `Flash region ${i + 1}/${regions.length} (${formatBytes(r.data.length)} @ 0x${r.address.toString(16)})`;
+            const regionTimeoutMs = calcTimeout(r.data.length, FLASH_SPEED);
+            await withTimeout(
+                async () => picoboot.flashEraseAndWrite(r.address, r.data),
+                regionTimeoutMs,
+                label
+            );
+        }
 
         clearProgressInterval(progressInterval, 100);
-        
+
         logActivity('Flashing completed successfully', 'success');
         updateStatus('Flash complete');
     } catch (error) {
