@@ -69,6 +69,7 @@ const otpTab = /** @type {HTMLElement} */ (document.getElementById('otpTab'));
 let activeTab = /** @type {HTMLElement} */ (flashTab);
 
 // Flash tab buttons
+const enterBootloaderBtn = /** @type {HTMLButtonElement} */ (document.getElementById('enterBootloaderBtn'));
 const connectBtn = /** @type {HTMLButtonElement} */ (document.getElementById('connectBtn'));
 const flashBtn = /** @type {HTMLButtonElement} */ (document.getElementById('flashBtn'));
 const rebootBtn = /** @type {HTMLButtonElement} */ (document.getElementById('rebootBtn'));
@@ -206,6 +207,9 @@ function updateStatus(error) {
 
 function updateButtons() {
     // Flash tab
+
+    // Enter Bootloader button - only available when disconnected
+    enterBootloaderBtn.disabled = connected();
 
     // Connect/Disconnect button
     connectBtn.disabled = false;
@@ -906,28 +910,84 @@ function updateActivityLogStatus(show = null) {
     }
 }
 
-async function connect() {
-    updateStatus("Connecting");
-
-    // Try to get a device - requires the user to select one
-    try {
-        picoboot = await Picoboot.requestDevice();
-        console.log('Device selected:', picoboot.getTarget().toString());
-    } catch (error) {
-        if (error.message.includes('cancelled')) {
-            updateStatus('No device');
-            logActivity('Device selection cancelled', 'info');
-        } else if (error.message.includes('not supported') && error.message.includes('browser')) {
-            updateStatus('Browser not supported');
-            logActivity('Error: Browser does not support WebUSB', 'error');
-        } else {
-            updateStatus('Connect error');
-            logActivity(`Error: ${error.message}`, 'error');
-        }
+async function enterBootloader() {
+    if (!('serial' in navigator)) {
+        logActivity('Error: Web Serial API is not supported by this browser', 'error');
+        updateStatus('Browser not supported');
         return;
     }
 
-    // Connect to the device
+    enterBootloaderBtn.disabled = true;
+
+    updateStatus('Entering bootloader');
+    logActivity('Select the serial port of your device...', 'info');
+
+    let port;
+    try {
+        port = await navigator.serial.requestPort();
+    } catch (e) {
+        if (e.name === 'NotFoundError') {
+            logActivity('Serial port selection cancelled', 'info');
+            clearLastStatus();
+        } else {
+            logActivity(`Error: ${e.message}`, 'error');
+            updateStatus('Serial error');
+        }
+        updateUi();
+        return;
+    }
+
+    try {
+        logActivity('Opening serial port at 1200 baud...', 'info');
+        await port.open({ baudRate: 1200 });
+        await port.setSignals({ dataTerminalReady: false });
+        await port.close();
+        logActivity('Bootloader trigger sent', 'success');
+    } catch (e) {
+        // The device may reset so fast that the port disappears mid-open.
+        // This is expected — treat it as a successful trigger.
+        logActivity('Bootloader trigger sent (device may have reset quickly)', 'info');
+        try { await port.close(); } catch (_) { /* already closed or gone */ }
+    }
+
+    logActivity('Waiting for device to reset into bootloader mode...', 'info');
+    updateStatus('Waiting for bootloader');
+
+    // Poll for a previously-paired PICOBOOT device to appear.
+    // If the user has connected to a PICOBOOT device before, the browser
+    // remembers the permission and we can auto-connect without a picker.
+    const POLL_INTERVAL_MS = 500;
+    const MAX_POLLS = 10;
+    for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+        try {
+            const devices = await Picoboot.getDevices();
+            if (devices.length === 1) {
+                picoboot = devices[0];
+                logActivity('PICOBOOT device detected, connecting automatically...', 'info');
+                await connectPicoboot();
+                updateUi();
+                return;
+            }
+            if (devices.length > 1) {
+                break;
+            }
+        } catch (_) { /* retry */ }
+    }
+
+    // No previously-paired device found — fall back to the WebUSB picker
+    logActivity('Select the PICOBOOT device to connect...', 'info');
+    await connect();
+    updateUi();
+}
+
+enterBootloaderBtn.addEventListener('click', async () => {
+    await enterBootloader();
+});
+
+async function connectPicoboot() {
+    updateStatus("Connecting");
+
     try {
         const usbInfo = picoboot.getUsbDeviceInfo();
         const target = picoboot.getTarget().toString();
@@ -958,6 +1018,29 @@ async function connect() {
         picoboot = null;
         updateStatus('Connection error');
     }
+}
+
+async function connect() {
+    updateStatus("Connecting");
+
+    try {
+        picoboot = await Picoboot.requestDevice();
+        console.log('Device selected:', picoboot.getTarget().toString());
+    } catch (error) {
+        if (error.message.includes('cancelled')) {
+            updateStatus('No device');
+            logActivity('Device selection cancelled', 'info');
+        } else if (error.message.includes('not supported') && error.message.includes('browser')) {
+            updateStatus('Browser not supported');
+            logActivity('Error: Browser does not support WebUSB', 'error');
+        } else {
+            updateStatus('Connect error');
+            logActivity(`Error: ${error.message}`, 'error');
+        }
+        return;
+    }
+
+    await connectPicoboot();
 }
 
 async function disconnectNoThrow() {
