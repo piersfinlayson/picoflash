@@ -8,8 +8,10 @@
 
 import { Picoboot } from '/pkg/picoboot.js';
 import { Connection } from '/pkg/connection.js';
+import { Target } from '/pkg/target.js';
 import { uf2ToFlashBuffer } from '/js/uf2/uf2.js';
 import { PicobootStatusCmd } from '/pkg/commands.js';
+import { PICOBOOT_VID } from '/pkg/constants.js';
 
 //
 // Type definitions
@@ -68,8 +70,27 @@ const advancedTab = /** @type {HTMLElement} */ (document.getElementById('advance
 const otpTab = /** @type {HTMLElement} */ (document.getElementById('otpTab'));
 let activeTab = /** @type {HTMLElement} */ (flashTab);
 
-// Flash tab buttons
+// Devices we look for when the user has not asked for particular USB IDs.
+// Raspberry Pi's own IDs, plus One ROM, which runs its own PICOBOOT stack
+// under the pid.codes vendor ID.
+const ONEROM_VID = 0x1209;
+const SITE_TARGETS = [
+    new Target('RP2040'),
+    new Target('RP2350'),
+    new Target('CUSTOM', ONEROM_VID, 0xf540),
+    new Target('CUSTOM', ONEROM_VID, 0xf542),
+];
+
+const DEVICE_IDS_STORAGE_KEY = 'picoflash.deviceIds';
+
+// Connection bar
 const connectBtn = /** @type {HTMLButtonElement} */ (document.getElementById('connectBtn'));
+const deviceIdsToggle = /** @type {HTMLButtonElement} */ (document.getElementById('deviceIdsToggle'));
+const deviceIds = /** @type {HTMLElement} */ (document.getElementById('deviceIds'));
+const customVidInput = /** @type {HTMLInputElement} */ (document.getElementById('customVid'));
+const customPidInput = /** @type {HTMLInputElement} */ (document.getElementById('customPid'));
+
+// Flash tab buttons
 const flashBtn = /** @type {HTMLButtonElement} */ (document.getElementById('flashBtn'));
 const rebootBtn = /** @type {HTMLButtonElement} */ (document.getElementById('rebootBtn'));
 let flashOp = /** @type {string} */ null;
@@ -133,12 +154,192 @@ function startup() {
     // Hide logs
     updateActivityLogStatus(false);
 
+    // Restore any USB IDs from the URL or from last time
+    loadDeviceIds();
+    updateDeviceIdsUi();
+
     // Log that we're loaded
     logActivity('pico⚡flash loaded', 'info');
 
     // Update the UI
     updateUi();
+}
+
+//
+// Device USB IDs
+//
+
+/**
+ * Turns what the user typed into a USB ID.
+ * A leading 0x is allowed but not required - the box has 0x in front of it.
+ * @param {string} value
+ * @returns {number|null} null if it is not 1 to 4 hex digits
+ */
+function parseHexId(value) {
+    const digits = value.trim().replace(/^0[xX]/, '');
+    if (!/^[0-9a-fA-F]{1,4}$/.test(digits)) {
+        return null;
+    }
+    return parseInt(digits, 16);
+}
+
+/**
+ * @param {string} value
+ * @returns {string} the hex digits, without any 0x, ready to put in a box
+ */
+function normaliseHexId(value) {
+    return (value || '').trim().replace(/^0[xX]/, '').toLowerCase();
+}
+
+/**
+ * Works out what the USB ID boxes currently say.
+ * Both empty is fine and means use the site's own list of devices.  One
+ * filled in without the other is not, because we cannot search on half an ID.
+ * @returns {{valid: boolean, target: Target|null}}
+ */
+function customTarget() {
+    const vidRaw = customVidInput.value.trim();
+    const pidRaw = customPidInput.value.trim();
+
+    if (!vidRaw && !pidRaw) {
+        return { valid: true, target: null };
+    }
+
+    const vid = parseHexId(vidRaw);
+    const pid = parseHexId(pidRaw);
+    if (vid === null || pid === null) {
+        return { valid: false, target: null };
+    }
+
+    return { valid: true, target: new Target('CUSTOM', vid, pid) };
+}
+
+/**
+ * The devices to look for when connecting.  USB IDs typed in by the user
+ * replace the site's list rather than adding to it, so that searching for a
+ * particular board does not turn up everything else as well.
+ * @returns {Array<Target>}
+ */
+function targets() {
+    const custom = customTarget();
+    return custom.target ? [custom.target] : SITE_TARGETS;
+}
+
+/**
+ * Marks up any USB ID box that does not hold usable hex.
+ * @return {void}
+ */
+function updateDeviceIdsUi() {
+    const vidRaw = customVidInput.value.trim();
+    const pidRaw = customPidInput.value.trim();
+    const bothBlank = !vidRaw && !pidRaw;
+
+    customVidInput.classList.toggle('input-error', !bothBlank && parseHexId(vidRaw) === null);
+    customPidInput.classList.toggle('input-error', !bothBlank && parseHexId(pidRaw) === null);
+}
+
+/**
+ * Shows or hides the USB ID boxes.
+ * @param {boolean} open
+ * @return {void}
+ */
+function setDeviceIdsOpen(open) {
+    deviceIds.classList.toggle('hidden', !open);
+    deviceIdsToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+/**
+ * Remembers usable USB IDs for next time, and forgets them once the boxes are
+ * emptied.  Half-typed and unusable values are not stored.
+ * @return {void}
+ */
+function saveDeviceIds() {
+    const custom = customTarget();
+
+    try {
+        if (custom.target) {
+            localStorage.setItem(DEVICE_IDS_STORAGE_KEY, JSON.stringify({
+                vid: normaliseHexId(customVidInput.value),
+                pid: normaliseHexId(customPidInput.value),
+            }));
+        } else if (custom.valid) {
+            localStorage.removeItem(DEVICE_IDS_STORAGE_KEY);
+        }
+    } catch (e) {
+        console.log(`Could not store USB IDs: ${e.message}`);
+    }
+}
+
+/**
+ * Fills the USB ID boxes from the URL, or failing that from last time, and
+ * opens them so it is clear the search has been narrowed.
+ * @return {void}
+ */
+function loadDeviceIds() {
+    const params = new URLSearchParams(window.location.search);
+    let vid = params.get('vid');
+    let pid = params.get('pid');
+
+    if (vid === null && pid === null) {
+        try {
+            const stored = JSON.parse(localStorage.getItem(DEVICE_IDS_STORAGE_KEY));
+            if (stored) {
+                vid = stored.vid;
+                pid = stored.pid;
+            }
+        } catch (e) {
+            console.log(`Could not read stored USB IDs: ${e.message}`);
+        }
+    }
+
+    if (!vid && !pid) {
+        return;
+    }
+
+    customVidInput.value = normaliseHexId(vid);
+    customPidInput.value = normaliseHexId(pid);
+    setDeviceIdsOpen(true);
+    saveDeviceIds();
 } 
+
+/**
+ * Reads a hex number the user typed, with or without a leading 0x.
+ *
+ * Underscores are allowed as separators, so 0x1000_0000 works as well as
+ * 0x10000000.  Anything left over after the digits makes the whole value
+ * invalid rather than being quietly dropped.  parseInt on its own reads
+ * "1000_0000" as 0x1000, which would read, write or erase at the wrong
+ * address without saying so.
+ * @param {string} value
+ * @returns {number} NaN if the value is not a hex number
+ */
+function parseHexNumber(value) {
+    const digits = value.trim().replace(/^0[xX]/, '').replace(/_/g, '');
+    if (!/^[0-9a-fA-F]+$/.test(digits)) {
+        return NaN;
+    }
+    return parseInt(digits, 16);
+}
+
+/**
+ * Reads a number the user typed - decimal, unless it starts 0x.
+ * Underscores are allowed as separators either way, and anything left over
+ * makes the value invalid.  See parseHexNumber for why.
+ * @param {string} value
+ * @returns {number} NaN if the value is not a number
+ */
+function parseNumber(value) {
+    const trimmed = value.trim();
+    if (/^0[xX]/.test(trimmed)) {
+        return parseHexNumber(trimmed);
+    }
+
+    const digits = trimmed.replace(/_/g, '');
+    if (!/^[0-9]+$/.test(digits)) {
+        return NaN;
+    }
+    return parseInt(digits, 10);
+}
 
 /**
  * Formats a number of bytes into a human-readable string.
@@ -208,7 +409,7 @@ function updateButtons() {
     // Flash tab
 
     // Connect/Disconnect button
-    connectBtn.disabled = false;
+    connectBtn.disabled = !connected() && !customTarget().valid;
     if (connected()) {
         connectBtn.textContent = 'Disconnect';
     } else {
@@ -504,6 +705,28 @@ function updateWriteOtpBtn() {
 }
 
 /**
+ * Builds what the Device field says.
+ *
+ * A board with its own USB IDs is named by its USB product name, with the
+ * chip after it once we have worked out what the chip is - "One ROM
+ * (RP2350)".  Raspberry Pi's own boards are named by the chip alone, because
+ * they report a product name of "RP2 Boot", which tells a Pico owner nothing.
+ * With neither a product name nor a known chip, fall back to the USB IDs.
+ * @returns {string}
+ */
+function deviceLabel() {
+    const info = picoboot.getUsbDeviceInfo();
+    const target = picoboot.getTarget();
+    const chip = target.type === 'CUSTOM' ? null : target.type;
+    const name = info.vendorId === PICOBOOT_VID ? null : info.productName;
+
+    if (name && chip) {
+        return `${name} (${chip})`;
+    }
+    return name || chip || target.toString();
+}
+
+/**
  * Updates the status display.
  * @return {void}
  */
@@ -524,7 +747,7 @@ function updateStatusDisplay() {
     let modelString = "-";
     let serialString = "-";
     if (connected()) {
-        modelString = picoboot.getTarget().toString();
+        modelString = deviceLabel();
         serialString = picoboot.getUsbDeviceInfo().serialNumber || "-";
     }
 
@@ -911,7 +1134,7 @@ async function connect() {
 
     // Try to get a device - requires the user to select one
     try {
-        picoboot = await Picoboot.requestDevice();
+        picoboot = await Picoboot.requestDevice(targets());
         console.log('Device selected:', picoboot.getTarget().toString());
     } catch (error) {
         if (error.message.includes('cancelled')) {
@@ -980,6 +1203,24 @@ connectBtn.addEventListener('click', async () => {
 
     updateUi();
 });
+
+deviceIdsToggle.addEventListener('click', () => {
+    setDeviceIdsOpen(deviceIds.classList.contains('hidden'));
+});
+
+for (const input of [customVidInput, customPidInput]) {
+    input.addEventListener('input', () => {
+        saveDeviceIds();
+        updateDeviceIdsUi();
+        updateButtons();
+    });
+
+    input.addEventListener('change', () => {
+        if (parseHexId(input.value) !== null) {
+            input.value = normaliseHexId(input.value);
+        }
+    });
+}
 
 rebootBtn.addEventListener('click', async () => {
     await rebootNormal();
@@ -1220,17 +1461,11 @@ readFlashBtn.addEventListener('click', async () => {
     updateStatus("Reading")
     clearHexData();
 
-    // Get address as hex number, stripping off any  leading 0x or 0X
-    const addr = parseInt(readAddrInput.value.replace(/^0x/i, ''), 16);
+    // Address is always hex, with or without a leading 0x
+    const addr = parseHexNumber(readAddrInput.value);
     
     // Length is a decimal, unless it starts 0x/0X
-    const lengthStr = readLengthInput.value;
-    let length;
-    if (lengthStr.startsWith('0x') || lengthStr.startsWith('0X')) {
-        length = parseInt(lengthStr.replace(/^0x/i, ''), 16);
-    } else {
-        length = parseInt(lengthStr, 10);
-    }
+    const length = parseNumber(readLengthInput.value);
 
     if (isNaN(addr)) {
         logActivity(`Invalid address for read: ${readAddrInput.value}`, 'error');
@@ -1345,8 +1580,8 @@ writeFileInput.addEventListener('change', async (e) => {
 writeFlashBtn.addEventListener('click', async () => {
     updateStatus("Writing")
 
-    // Get address as hex number, stripping off any  leading 0x or 0X
-    const addr = parseInt(writeAddrInput.value.replace(/^0x/i, ''), 16);
+    // Address is always hex, with or without a leading 0x
+    const addr = parseHexNumber(writeAddrInput.value);
 
     if (advWriteFile == null) {
         logActivity('No file selected for write', 'error');
@@ -1405,17 +1640,11 @@ writeFlashBtn.addEventListener('click', async () => {
 eraseFlashBtn.addEventListener('click', async () => {
     updateStatus("Erasing")
 
-    // Get address as hex number, stripping off any  leading 0x or 0X
-    const addr = parseInt(eraseAddrInput.value.replace(/^0x/i, ''), 16);
+    // Address is always hex, with or without a leading 0x
+    const addr = parseHexNumber(eraseAddrInput.value);
     
     // Length is a decimal, unless it starts 0x/0X
-    const lengthStr = eraseLengthInput.value;
-    let length;
-    if (lengthStr.startsWith('0x') || lengthStr.startsWith('0X')) {
-        length = parseInt(lengthStr.replace(/^0x/i, ''), 16);
-    } else {
-        length = parseInt(lengthStr, 10);
-    }
+    const length = parseNumber(eraseLengthInput.value);
 
     if (isNaN(addr)) {
         logActivity(`Invalid address for erase: ${eraseAddrInput.value}`, 'error');
@@ -1817,23 +2046,10 @@ readOtpBtn.addEventListener('click', async () => {
     const eccMode = oprogReadMode.value === "ecc";
 
     // Get row as decimal, unless it starts 0x or 0X
-    const rowIndexStr = oprogReadAddrInput.value;
-    let rowIndex;
-    if (rowIndexStr.startsWith('0x') || rowIndexStr.startsWith('0X')) {
-        rowIndex = parseInt(rowIndexStr.replace(/^0x/i, ''), 16);
-    } else {
-        rowIndex = parseInt(rowIndexStr, 10);
-    }
+    const rowIndex = parseNumber(oprogReadAddrInput.value);
 
     // Length is a decimal, unless it starts 0x/0X
-    const rowCountStr = oprogReadLengthInput.value;
-    /** @type {number} */
-    let rowCount;
-    if (rowCountStr.startsWith('0x') || rowCountStr.startsWith('0X')) {
-        rowCount = parseInt(rowCountStr.replace(/^0x/i, ''), 16);
-    } else {
-        rowCount = parseInt(rowCountStr, 10);
-    }
+    const rowCount = parseNumber(oprogReadLengthInput.value);
 
     if (isNaN(rowIndex) || rowIndex < 0 || rowIndex > 4095) {
         logActivity(`Invalid row index for OTP read: ${oprogReadAddrInput.value}`, 'error');
@@ -1916,7 +2132,7 @@ writeOtpBtn.addEventListener('click', async () => {
     const rowIndexStr = oprogWriteAddrInput.value;
     let rowIndex;
     if (rowIndexStr.startsWith('0x') || rowIndexStr.startsWith('0X')) {
-        rowIndex = parseInt(rowIndexStr.replace(/^0x/i, ''), 16);
+        rowIndex = parseHexNumber(rowIndexStr);
     } else {
         logActivity(`Invalid row index for OTP write: ${oprogWriteAddrInput.value} - must be hex prefixed with '0x'`, 'error');
         updateStatus('Invalid row index');
@@ -1934,13 +2150,13 @@ writeOtpBtn.addEventListener('click', async () => {
     const dataStr = oprogWriteDataInput.value;
     let dataHexStr;
     if (dataStr.startsWith('0x') || dataStr.startsWith('0X')) {
-        dataHexStr = dataStr.replace(/^0x/i, '');
+        dataHexStr = dataStr.replace(/^0x/i, '').replace(/_/g, '');
     } else {
         logActivity(`Invalid data for OTP write: ${oprogWriteDataInput.value} - must be hex prefixed with '0x'`, 'error');
         updateStatus('Invalid data');
         return;
     }
-    const dataValue = parseInt(dataHexStr, 16);
+    const dataValue = parseHexNumber(dataHexStr);
 
     let maxDataValue;
     if (eccMode) {

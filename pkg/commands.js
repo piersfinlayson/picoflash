@@ -2,7 +2,12 @@
 //
 // MIT License
 
-import { PICOBOOT_MAGIC } from './constants.js';
+import {
+    PICOBOOT_MAGIC,
+    GET_INFO_TYPE_SYS,
+    GET_INFO_SYS_CHIP_INFO,
+    GET_INFO_RESPONSE_SIZE,
+} from './constants.js';
 
 export class PicobootCmdId {
     static EXCLUSIVE_ACCESS = 0x1;
@@ -267,6 +272,24 @@ export class PicobootCmd {
         view.setUint8(4, ecc ? 1 : 0);
         console.log(`OTP Read Command - firstRow: ${firstRow}, rowCount: ${rowCount}, ecc: ${ecc}, size: ${size}`);
         return new PicobootCmd(PicobootCmdId.OTP_READ, 5, size, args);
+    }
+
+    /**
+     * Asks the device for its chip info - the package variant and chip ID.
+     * Only the RP2350 answers this, so it doubles as a way of telling what
+     * chip a device with unrecognised USB IDs is built on.
+     *
+     * The transfer length has to be a multiple of 4 and big enough for the
+     * reply, otherwise the stock bootrom halts the endpoint.  32 bytes is a
+     * little over the largest reply we can get.
+     * @returns {PicobootCmd}
+     */
+    static chipInfo() {
+        const args = new Uint8Array(16);
+        const view = new DataView(args.buffer);
+        view.setUint8(0, GET_INFO_TYPE_SYS);
+        view.setUint32(4, GET_INFO_SYS_CHIP_INFO, true);
+        return new PicobootCmd(PicobootCmdId.GET_INFO, 0x10, GET_INFO_RESPONSE_SIZE, args);
     }
 
     /**

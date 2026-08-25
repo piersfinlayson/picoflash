@@ -1,6 +1,6 @@
 {
   "name": "picoflash",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Pure JavaScript WebUSB implementation of the PICOBOOT protocol for RP2040/RP2350 microcontrollers",
   "type": "module",
   "main": "index.js",

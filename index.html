@@ -40,6 +40,22 @@
             <div class="connection-row">
                 <div class="connection-controls">
                     <button id="connectBtn" class="btn btn-primary" data-tooltip="Connect to an RP-based device">Connect</button>
+                    <button id="deviceIdsToggle" class="btn btn-disclosure" aria-expanded="false" aria-controls="deviceIds" data-tooltip="Look for a device with different USB IDs"><span class="disclosure-glyph">&rsaquo;</span></button>
+                </div>
+            </div>
+
+            <div class="connection-row">
+                <div id="deviceIds" class="device-ids hidden">
+                    <div class="device-id-field">
+                        <label for="customVid">Vendor ID</label>
+                        <span class="hex-prefix">0x</span>
+                        <input type="text" id="customVid" class="input input-hex" maxlength="4" placeholder="1209" autocomplete="off" spellcheck="false">
+                    </div>
+                    <div class="device-id-field">
+                        <label for="customPid">Product ID</label>
+                        <span class="hex-prefix">0x</span>
+                        <input type="text" id="customPid" class="input input-hex" maxlength="4" placeholder="f542" autocomplete="off" spellcheck="false">
+                    </div>
                 </div>
             </div>
 

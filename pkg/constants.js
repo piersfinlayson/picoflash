@@ -28,6 +28,12 @@ export const PICOBOOT_PID_RP2350 = 0x000f;
 
 export const PICOBOOT_MAGIC = 0x431FD10B;
 
+// GET_INFO command - we only ever ask for the system chip info, which is what
+// tells an RP2350 apart from anything else.
+export const GET_INFO_TYPE_SYS = 0x01;
+export const GET_INFO_SYS_CHIP_INFO = 0x00000001;
+export const GET_INFO_RESPONSE_SIZE = 32;
+
 export const UF2_RP2040_FAMILY_ID = 0xE48BFF56;
 export const UF2_ABSOLUTE_FAMILY_ID = 0xE48BFF57;
 export const UF2_DATA_FAMILY_ID = 0xE48BFF58;

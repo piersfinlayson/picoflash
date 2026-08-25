@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-08-25
+
+Devices with any vendor and product ID can now be flashed.  Enter the IDs next to Connect, or pass them in the URL as ?vid=&pid=.
+
+The chip is worked out by asking the device for its chip info, rather than from its USB IDs, so a relabelled RP2350 gets REBOOT2, reboot to BOOTSEL and OTP.  Devices are named by their USB product name and chip, such as "One ROM (RP2350)".
+
+One ROM (1209:f540 and 1209:f542) is found without entering anything.
+
+Addresses and lengths accept underscores, so 0x1000_0000 works.  It previously read as 0x1000.
+
 ## [0.1.2] - 2025-03-19
 
 Added picoboot.rebootRp2350() method.

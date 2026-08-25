@@ -264,9 +264,38 @@ export class Picoboot {
         );
 
         await this.connection.resetInterface(true);
-        
+
+        await this.detectChipType();
+
         console.log('Connection established');
         return this.connection;
+    }
+
+    /**
+     * Works out what chip is behind unrecognised USB IDs by asking the device
+     * for its chip info.  Only the RP2350 answers, so a reply means RP2350 and
+     * unlocks the RP2350 operations - REBOOT2, reboot to BOOTSEL and OTP.  If
+     * the device does not answer, the chip stays unknown and those operations
+     * stay unavailable.
+     *
+     * Devices with Raspberry Pi's own USB IDs are already identified by their
+     * product ID, so they are left alone.
+     * @returns {Promise<void>}
+     */
+    async detectChipType() {
+        if (this.target.type !== 'CUSTOM') {
+            return;
+        }
+
+        try {
+            await this.connection.readChipInfo();
+        } catch (e) {
+            console.log(`Device did not return chip info, chip type stays unknown: ${e.message}`);
+            return;
+        }
+
+        console.log(`Device returned chip info - treating ${this.target.toString()} as RP2350`);
+        this.target.type = 'RP2350';
     }
 
     /**

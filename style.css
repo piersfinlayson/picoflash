@@ -142,6 +142,65 @@ h3 {
     margin-inline: auto;
 }
 
+.btn-disclosure {
+    background: transparent;
+    color: var(--color-text-secondary);
+    border: 1px solid var(--color-border);
+    padding: 0.625rem 0.9rem;
+    line-height: 1;
+    font-size: 1.1rem;
+    transition: color 0.2s ease;
+}
+
+.btn-disclosure:hover {
+    color: var(--color-text-primary);
+}
+
+.btn-disclosure[aria-expanded="true"] {
+    color: var(--color-accent);
+}
+
+/* Rotated on its own rather than as part of the button, so that the button's
+   tooltip stays the right way up. */
+.disclosure-glyph {
+    display: inline-block;
+    transition: transform 0.2s ease;
+}
+
+.btn-disclosure[aria-expanded="true"] .disclosure-glyph {
+    transform: rotate(90deg);
+}
+
+.device-ids {
+    display: flex;
+    gap: var(--space-xl);
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-inline: auto;
+    margin-bottom: var(--space-lg);
+}
+
+.device-id-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--color-text-secondary);
+}
+
+.hex-prefix {
+    font-family: var(--font-mono);
+    color: var(--color-text-tertiary);
+    margin-right: calc(var(--space-sm) * -1 + 2px);
+}
+
+.input-hex {
+    width: 4ch;
+    box-sizing: content-box;
+    flex: 0 0 auto;
+    text-align: center;
+    padding-inline: var(--space-sm);
+}
+
 .device-status {
     background: var(--color-bg-tertiary);
     border: 1px solid var(--color-border);
@@ -456,6 +515,10 @@ h3 {
     font-family: var(--font-mono);
     font-size: 0.95rem;
     flex: 1;
+}
+
+.input-error {
+    border-color: var(--color-danger);
 }
 
 .input:focus {

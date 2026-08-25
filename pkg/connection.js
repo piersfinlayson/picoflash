@@ -168,6 +168,48 @@ export class Connection {
     }
 
     /**
+     * Reads the chip's package variant and chip ID using the GET_INFO command.
+     *
+     * Only the RP2350 answers this, so a successful read also tells us the
+     * chip is an RP2350 when the USB IDs are not Raspberry Pi's own.
+     *
+     * The interface is reset first, because a device left over from an earlier
+     * operation can have its bulk endpoint halted, and the command write
+     * stalls if it is.
+     *
+     * The reply is a word array - word 0 says how many words follow, and the
+     * three chip info words are always the last three of them.  The stock
+     * bootrom puts a flags word in front of them and picobootx does not, so
+     * they are found by counting back from the end rather than by a fixed
+     * offset.
+     * @returns {Promise<{packageSel: number, deviceIdLow: number, deviceIdHigh: number}>}
+     */
+    async readChipInfo() {
+        await this.resetInterface();
+
+        const resp = await this.sendCmd(PicobootCmd.chipInfo(), null);
+        const view = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+        const word = (i) => view.getUint32(i * 4, true);
+
+        const count = resp.length >= 4 ? word(0) : 0;
+        if (count < 3 || resp.length < (count + 1) * 4) {
+            throw new ProtocolError(
+                `GET_INFO returned ${resp.length} bytes with word count ${count} - too short`,
+                this.target
+            );
+        }
+
+        const first = count - 2;
+        const chipInfo = {
+            packageSel: word(first),
+            deviceIdLow: word(first + 1),
+            deviceIdHigh: word(first + 2),
+        };
+        console.log(`Chip info: package_sel=${chipInfo.packageSel}, device_id=${chipInfo.deviceIdHigh.toString(16).padStart(8, '0')}${chipInfo.deviceIdLow.toString(16).padStart(8, '0')}`);
+        return chipInfo;
+    }
+
+    /**
      * @param {number} delayMs
      * @returns {Promise<void>}
      */
