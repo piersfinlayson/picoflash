@@ -14,6 +14,7 @@ import {
     DEFAULT_ENDPOINT_TIMEOUT,
     DEFAULT_COMMAND_STATUS_TIMEOUT,
     DEFAULT_RESET_TIMEOUT,
+    FLASH_OP_CHUNK_SECTORS,
 } from './constants.js';
 
 export class Picoboot {
@@ -414,9 +415,10 @@ export class Picoboot {
     /**
      * @param {number} addr
      * @param {number} size
+     * @param {(bytesCompleted: number, totalBytes: number) => void} [onProgress]
      * @returns {Promise<Uint8Array>}
      */
-    async flashRead(addr, size) {
+    async flashRead(addr, size, onProgress) {
         const wasConnected = this.isConnected();
         
         if (!wasConnected) {
@@ -429,7 +431,13 @@ export class Picoboot {
             // Appears to be required on some RP2350 device
             await this.connection.exitXip();
 
-            const data = await this.connection.flashRead(addr, size);
+            const chunkSize = FLASH_OP_CHUNK_SECTORS * this.target.flashSectorSize();
+            const data = new Uint8Array(size);
+            for (let off = 0; off < size; off += chunkSize) {
+                const len = Math.min(chunkSize, size - off);
+                data.set(await this.connection.flashRead(addr + off, len), off);
+                if (onProgress) onProgress(off + len, size);
+            }
             return data;
         } finally {
             if (!wasConnected) {
@@ -492,12 +500,15 @@ export class Picoboot {
 
     /**
      * Resets the interface and exits XIP on RP2040 before performing the
-     * operations.
+     * operations. Erases and writes in batches so large images don't
+     * stall USB until the host drops the device; the optional progress
+     * callback fires after each batch.
      * @param {number} addr
      * @param {Uint8Array} buf
+     * @param {(bytesCompleted: number, totalBytes: number) => void} [onProgress]
      * @returns {Promise<void>}
      */
-    async flashEraseAndWrite(addr, buf) {
+    async flashEraseAndWrite(addr, buf, onProgress) {
         const sectorSize = this.target.flashSectorSize();
         const pageSize = this.target.flashPageSize();
         
@@ -507,8 +518,6 @@ export class Picoboot {
                 this.target
             );
         }
-        
-        const eraseSize = Math.ceil(buf.length / sectorSize) * sectorSize;
         
         const wasConnected = this.isConnected();
         
@@ -522,8 +531,14 @@ export class Picoboot {
             // Appears to be required on some RP2350 device
             await this.connection.exitXip();
 
-            await this.connection.flashErase(addr, eraseSize);
-            await this.connection.flashWrite(addr, buf);
+            const chunkSize = FLASH_OP_CHUNK_SECTORS * sectorSize;
+            for (let off = 0; off < buf.length; off += chunkSize) {
+                const part = buf.subarray(off, Math.min(off + chunkSize, buf.length));
+                const eraseSize = Math.ceil(part.length / sectorSize) * sectorSize;
+                await this.connection.flashErase(addr + off, eraseSize);
+                await this.connection.flashWrite(addr + off, part);
+                if (onProgress) onProgress(off + part.length, buf.length);
+            }
         } finally {
             if (!wasConnected) {
                 await this.disconnect();

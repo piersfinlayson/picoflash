@@ -48,6 +48,7 @@ const READ_SPEED = 360 * 1024; // 400KB/s
 const ERASE_SPEED = 100 * 1024; // 200KB/s
 const WRITE_SPEED = 240 * 1024; // 400KB/s
 const DEFAULT_USB_TIMEOUT = 5000;
+const PROGRESS_INACTIVITY_TIMEOUT = 15000; // per-chunk, not whole-operation
 const DEFAULT_DISPLAY_UPDATE_PAUSE = 100;
 const DEFAULT_REBOOT_DELAY = 100;
 
@@ -822,6 +823,35 @@ async function withTimeout(promiseFn, timeoutMs, operation) {
 }
 
 /**
+ * Like withTimeout, but the deadline resets on each progress report, so a
+ * slow but advancing transfer isn't killed while a genuine stall still is.
+ * @param {(...args: any[]) => Promise<any>} promiseFn
+ * @param {number} inactivityMs
+ * @param {string} operation
+ * @returns {Promise<any>}
+ */
+async function withProgressTimeout(promiseFn, inactivityMs, operation) {
+    let timer = null;
+    try {
+        return await Promise.race([
+            promiseFn(),
+            new Promise((_, reject) => {
+                const arm = () => {
+                    clearTimeout(timer);
+                    timer = setTimeout(() => reject(new Error(
+                        `${operation} timed out: no progress for ${inactivityMs}ms`)), inactivityMs);
+                };
+                progressTimeoutKick = arm;
+                arm();
+            })
+        ]);
+    } finally {
+        clearTimeout(timer);
+        progressTimeoutKick = null;
+    }
+}
+
+/**
  * Wraps a promise with a default timeout.
  * @param {(...args: any[]) => Promise<any>} promiseFn
  * @param {string} operation 
@@ -829,6 +859,21 @@ async function withTimeout(promiseFn, timeoutMs, operation) {
  */
 async function withDefaultTimeout(promiseFn, operation = 'Operation') {
     return withTimeout(promiseFn, DEFAULT_USB_TIMEOUT, operation);
+}
+
+// Actual progress reported by chunked operations; null falls back to the
+// time-based estimate
+let measuredProgress = null;
+let progressTimeoutKick = null;
+
+/**
+ * Progress callback for chunked picoboot operations.
+ * @param {number} bytesCompleted
+ * @param {number} totalBytes
+ */
+function reportProgress(bytesCompleted, totalBytes) {
+    measuredProgress = Math.min(99, Math.floor((bytesCompleted / totalBytes) * 100));
+    if (progressTimeoutKick) progressTimeoutKick();
 }
 
 /**
@@ -849,7 +894,7 @@ function setupProgressInterval(length, bps) {
     return setInterval(() => {
         const elapsed = Date.now() - startTime;
         const estimatedProgress = Math.min(95, Math.floor((elapsed / estimatedTimeMs) * 100));
-        progressPercent = estimatedProgress;
+        progressPercent = measuredProgress !== null ? measuredProgress : estimatedProgress;
         updateProgress();
     }, 100);
 }
@@ -863,6 +908,7 @@ function setupProgressInterval(length, bps) {
  */
 function clearProgressInterval(intervalId, percent, error = false) {
     clearInterval(intervalId);
+    measuredProgress = null;
     progressPercent = percent;
     updateProgress(error);
 }
@@ -1399,18 +1445,17 @@ flashBtn.addEventListener('click', async () => {
         return;
     }
 
-    // Set up progress bar handling and calculate timeout
+    // Set up progress bar handling
     const progressInterval = setupProgressInterval(firmwareData.data.length, FLASH_SPEED);
-    const timeoutMs = calcTimeout(firmwareData.data.length, FLASH_SPEED);
 
     // Disable the flash button to prevent multiple clicks
     updateFlashBtns('flash');
 
     try {
         logActivity(`Flashing ${firmwareData.name} (${formatBytes(firmwareData.data.length)})...`, 'info');
-        await withTimeout(
-            async () => picoboot.flashEraseAndWrite(firmwareData.address, firmwareData.data),
-            timeoutMs,
+        await withProgressTimeout(
+            async () => picoboot.flashEraseAndWrite(firmwareData.address, firmwareData.data, reportProgress),
+            PROGRESS_INACTIVITY_TIMEOUT,
             `Flash write`
         );
 
@@ -1484,18 +1529,17 @@ readFlashBtn.addEventListener('click', async () => {
         return;
     }
 
-    // Set up progress bar handling and calculate timeout
+    // Set up progress bar handling
     const progressInterval = setupProgressInterval(length, READ_SPEED);
-    const timeoutMs = calcTimeout(length, READ_SPEED);
 
     // Disable the read button to prevent multiple clicks
     updateAdvBtns('read');
 
     try {
         // Perform the read
-        const data = await withTimeout(
-            async () => picoboot.flashRead(addr, length),
-            timeoutMs,
+        const data = await withProgressTimeout(
+            async () => picoboot.flashRead(addr, length, reportProgress),
+            PROGRESS_INACTIVITY_TIMEOUT,
             `Read`
         );
 
