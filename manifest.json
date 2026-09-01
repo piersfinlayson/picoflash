@@ -1,0 +1,21 @@
+{
+    "name": "pico⚡flash",
+    "short_name": "picoflash",
+    "description": "Lightning fast Pico flashing from your browser",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0f1419",
+    "theme_color": "#0f1419",
+    "icons": [
+        {
+            "src": "/images/android-chrome-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/images/android-chrome-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}
