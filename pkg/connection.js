@@ -554,7 +554,7 @@ export class Connection {
                 // be sent to clear the protocol stall condition.  This will
                 // happen when GET_CMD_STATUS is queried after this error is
                 // thrown, and that returns an error.
-                await this.device.clearHalt('in', this.inEp);
+                await this.device.clearHalt('out', this.outEp);
             }
             if (result.status !== 'ok') {
                 throw new Error(`Transfer status: ${result.status}`);
