@@ -6,6 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="/style.css">
     <link rel="shortcut icon" href="/images/favicon.png" type="image/x-icon" />
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/images/apple-touch-icon.png">
+    <meta name="theme-color" content="#0f1419">
 
     <!-- SEO title & description -->
     <title>pico⚡flash</title>
@@ -287,5 +290,11 @@
 <script type="module" src="/js/flash/picoflash.js"></script>
 
 <script data-goatcounter="https://picoflash.analytics.piers.rocks/count" async src="//picoflash.analytics.piers.rocks/count.js"></script>
+
+<script>
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js');
+}
+</script>
 
 </html>
