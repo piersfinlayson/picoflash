@@ -1,0 +1,22 @@
+{
+    "compilerOptions": {
+        "noEmit": true,
+        "allowJs": true,
+        "checkJs": true,
+        "target": "ES2020",
+        "module": "ES2020",
+        "moduleResolution": "bundler",
+        "skipLibCheck": true,
+        "baseUrl": ".",
+        "paths": {
+            "/pkg/*": ["pkg/*"],
+            "/js/*": ["js/*"]
+        },
+        "strict": false,
+        "noImplicitAny": false
+    },
+    "include": [
+        "js/**/*.js",
+        "pkg/**/*.js"
+    ]
+}

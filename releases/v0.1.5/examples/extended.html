@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Picoflash Extended Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 750px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #output {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .error {
+            color: #d32f2f;
+        }
+        .success {
+            color: #388e3c;
+        }
+        .info {
+            color: #1976d2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Picoboot Extended Example</h1>
+    <p>This comprehensive example demonstrates how to use the Picoboot library to communicate with RP2040/RP2350 devices in BOOTSEL mode.</p>
+    
+    <div>
+        <button id="connectBtn">Connect to Device</button>
+        <button id="getDevicesBtn">List Pico Devices</button>
+        <button id="resetBtn" disabled>Reset Interface</button>
+        <button id="statusBtn" disabled>Get Command Status</button>
+        <button id="readFlashBtn" disabled>Read Flash (256 bytes)</button>
+        <button id="eraseFlashBtn" disabled>Erase Flash (4KB)</button>
+        <button id="writeFlashBtn" disabled>Write Flash (256 bytes)</button>
+        <button id="rebootBtn" disabled>Reboot Device</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+    </div>
+    
+    <div id="output"></div>
+
+    <script type="module">
+        import { Picoboot } from '/pkg/picoboot.js';
+        import { Target } from '/pkg/target.js';
+        import { FLASH_START, PAGE_SIZE, SECTOR_SIZE } from '/pkg/constants.js';
+
+        let picoboot = null;
+        let connection = null;
+        
+        const output = document.getElementById('output');
+        const connectBtn = document.getElementById('connectBtn');
+        const getDevicesBtn = document.getElementById('getDevicesBtn');
+        const readFlashBtn = document.getElementById('readFlashBtn');
+        const eraseFlashBtn = document.getElementById('eraseFlashBtn');
+        const writeFlashBtn = document.getElementById('writeFlashBtn');
+        const rebootBtn = document.getElementById('rebootBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const statusBtn = document.getElementById('statusBtn');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const span = document.createElement('span');
+            span.className = type;
+            span.textContent = `[${timestamp}] ${message}\n`;
+            output.appendChild(span);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function enableButtons(connected) {
+            connectBtn.disabled = false;
+            getDevicesBtn.disabled = false;
+            readFlashBtn.disabled = !connected;
+            eraseFlashBtn.disabled = !connected;
+            writeFlashBtn.disabled = !connected;
+            rebootBtn.disabled = !connected;
+            disconnectBtn.disabled = !connected;
+            resetBtn.disabled = !connected;
+            statusBtn.disabled = !connected;
+        }
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                log('Requesting device from user...', 'info');
+                picoboot = await Picoboot.requestDevice();
+                log(`Device selected: ${picoboot.getTarget().toString()}`, 'success');
+
+                const usb_info = picoboot.getUsbDeviceInfo()
+                log(`VID:PID: ${usb_info.vendorId.toString(16).padStart(4, '0')}:${usb_info.productId.toString(16).padStart(4, '0')}`, 'info');
+                log(`Manufacturer=${usb_info.manufacturerName}`, 'info');
+                log(`Product=${usb_info.productName}`, 'info');
+                log(`Serial=${usb_info.serialNumber}`, 'info');
+
+                log('Connecting to device...', 'info');
+                connection = await picoboot.connect();
+                log('Connected successfully', 'success');
+                
+                log('Resetting interface...', 'info');
+                await connection.resetInterface();
+                log('Interface reset complete', 'success');
+
+                
+                enableButtons(true);
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        });
+
+        getDevicesBtn.addEventListener('click', async () => {
+            try {
+                log('Getting Pico devices...', 'info');
+                const devices = await Picoboot.getDevices();
+                
+                if (devices.length === 0) {
+                    log('No Pico devices found', 'info');
+                } else {
+                    log(`Found ${devices.length} device(s):`, 'success');
+                    devices.forEach((device, index) => {
+                        log(`  ${index + 1}. ${device.getTarget().toString()} (${device.getInfo()})`, 'info');
+                    });
+                }
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        });
+
+        readFlashBtn.addEventListener('click', async () => {
+            try {
+                log('Reading 256 bytes from flash...', 'info');
+                const data = await connection.flashReadStart(256);
+                log(`Read ${data.length} bytes`, 'success');
+                
+                const hex = Array.from(data.slice(0, 64))
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join(' ');
+                log(`First 64 bytes: ${hex}`, 'info');
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        });
+
+        eraseFlashBtn.addEventListener('click', async () => {
+            if (!confirm('This will erase 4KB of flash memory. Continue?')) {
+                return;
+            }
+            
+            try {
+                log('Setting exclusive access...', 'info');
+                await connection.setExclusiveAccess(2);
+                
+                log('Exiting XIP mode...', 'info');
+                await connection.exitXip();
+                
+                log('Erasing 4KB of flash...', 'info');
+                await connection.flashEraseStart(SECTOR_SIZE);
+                log('Flash erased successfully', 'success');
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        });
+
+        writeFlashBtn.addEventListener('click', async () => {
+            if (!confirm('This will write 256 bytes to flash. Continue?')) {
+                return;
+            }
+            
+            try {
+                log('Setting exclusive access...', 'info');
+                await connection.setExclusiveAccess(2);
+                
+                log('Exiting XIP mode...', 'info');
+                await connection.exitXip();
+                
+                log('Erasing flash sector...', 'info');
+                await connection.flashEraseStart(SECTOR_SIZE);
+                
+                const testData = new Uint8Array(256);
+                for (let i = 0; i < testData.length; i++) {
+                    testData[i] = i & 0xFF;
+                }
+                
+                log('Writing 256 bytes to flash...', 'info');
+                await connection.flashWriteStart(testData);
+                log('Flash written successfully', 'success');
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        });
+
+        rebootBtn.addEventListener('click', async () => {
+            try {
+                log('Rebooting device...', 'info');
+                await connection.reboot(100);
+                log('Reboot command sent', 'success');
+                
+                setTimeout(async () => {
+                    await picoboot.disconnect();
+                    picoboot = null;
+                    connection = null;
+                    enableButtons(false);
+                    log('Disconnected after reboot', 'info');
+                }, 500);
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        });
+
+        disconnectBtn.addEventListener('click', async () => {
+            try {
+                log('Disconnecting...', 'info');
+                await picoboot.disconnect();
+                picoboot = null;
+                connection = null;
+                enableButtons(false);
+                log('Disconnected', 'success');
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        });
+
+        resetBtn.addEventListener('click', async () => {
+            try {
+                log('Resetting interface...', 'info');
+                await connection.resetInterface();
+                log('Interface reset complete', 'success');
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        });
+
+        statusBtn.addEventListener('click', async () => {
+            try {
+                log('Getting command status...', 'info');
+                const status = await connection.getCommandStatus();
+                log(`Command Status: ${JSON.stringify(status)}`, 'success');
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        });
+
+        log('Ready. Click "Connect to Device" to begin.', 'info');
+    </script>
+</body>
+</html>
