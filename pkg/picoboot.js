@@ -207,7 +207,7 @@ export class Picoboot {
      * @returns {Promise<Connection>}
      */
     async connect() {
-        if (this.connection) {
+        if (this.isConnected()) {
             console.log('Already connected, returning existing connection');
             return this.connection;
         }
@@ -308,6 +308,12 @@ export class Picoboot {
             return;
         }
         
+        // A timed out transfer has already closed the device
+        if (!this.device.opened) {
+            this.connection = null;
+            return;
+        }
+        
         console.log(`Disconnecting from ${this.target.toString()}`);
         
         try {
@@ -341,7 +347,8 @@ export class Picoboot {
      * @returns {boolean}
      */
     isConnected() {
-        return this.connection !== null;
+        // A timed out transfer closes the device
+        return this.connection !== null && this.device.opened;
     }
 
     /**

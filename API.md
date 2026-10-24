@@ -122,7 +122,11 @@ Main class for device discovery and connection management.
 - Returns: `Promise<void>`
 
 **`setTimeouts(timeouts)`**
-- Sets timeout configuration
+- Sets the timeouts, in milliseconds:
+  - `endpoint`: each bulk transfer. Default 5000.
+  - `reset`: an interface reset. Default 1000.
+  - `commandStatus`: a command status request. Default 1000.
+- A transfer that times out closes the device and throws `UsbError`. `isConnected()` then returns `false` and the next `Picoboot` call reconnects.
 - Returns: `void`
 
 ### Connection Class

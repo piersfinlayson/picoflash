@@ -21,6 +21,31 @@ As well as a [website](https://picoflash.org) pico⚡flash is a full Javascript 
 - Full error handling
 - Detailed console logging
 
+## Using the library
+
+Import it from picoflash.org:
+
+- `https://picoflash.org/releases/vX.Y.Z/pkg/picoboot.js` is release X.Y.Z and doesn't change.
+- `https://picoflash.org/pkg/picoboot.js` is the latest commit to `main`.
+
+## Testing
+
+```bash
+node tests/mock-device.mjs
+```
+
+This tests flash command chunking and transfer timeouts against a mock PICOBOOT device. The deploy workflow runs it before publishing.
+
+## Releasing
+
+1. Run the tests.
+2. Set the version in `pkg/package.json`.
+3. Date the version's heading in `CHANGELOG.md`.
+4. Commit and push to `main`. The deploy workflow publishes the site to the root of picoflash.org.
+5. Tag the release with `git tag vX.Y.Z` and push the tag. The deploy workflow publishes the site to `picoflash.org/releases/vX.Y.Z/`.
+
+The site is served from the `gh-pages` branch. The deploy workflow updates it.
+
 ## Links
 
 - [Website](https://picoflash.org)

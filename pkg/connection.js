@@ -4,8 +4,50 @@
 
 import { PicobootCmd, PicobootCmdId, PicobootStatusCmd } from './commands.js';
 import { UsbError, ProtocolError, StatusError, ValidationError } from './errors.js';
-import { REQUEST_RESET, REQUEST_GET_COMMAND_STATUS, RESPONSE_GET_COMMAND_STATUS_SIZE, DEFAULT_ENDPOINT_TIMEOUT, DEFAULT_RESET_TIMEOUT } from './constants.js';
+import { REQUEST_RESET, REQUEST_GET_COMMAND_STATUS, RESPONSE_GET_COMMAND_STATUS_SIZE, DEFAULT_ENDPOINT_TIMEOUT, DEFAULT_RESET_TIMEOUT, FLASH_CHUNK_SIZE } from './constants.js';
 import { Target } from './target.js';
+
+/**
+ * Waits for a USB transfer on connection's device, closing the device if it
+ * takes longer than timeoutMs. A WebUSB transfer can only be cancelled by
+ * closing the device, and every later transfer would wait behind it.
+ * @param {Connection} connection
+ * @param {Promise<any>} transfer
+ * @param {number|undefined} timeoutMs - no timeout where undefined
+ * @param {string} operation
+ * @returns {Promise<any>}
+ */
+async function withTimeout(connection, transfer, timeoutMs, operation) {
+    if (!timeoutMs) {
+        return await transfer;
+    }
+
+    let timer;
+    let timedOut = false;
+    const timeout = new Promise(resolve => {
+        timer = setTimeout(() => {
+            timedOut = true;
+            resolve();
+        }, timeoutMs);
+    });
+
+    try {
+        const result = await Promise.race([transfer, timeout]);
+        if (!timedOut) {
+            return result;
+        }
+    } finally {
+        clearTimeout(timer);
+    }
+
+    console.error(`${operation} timed out after ${timeoutMs}ms - closing device`);
+    try {
+        await connection.device.close();
+    } catch (e) {
+        console.error(`Failed to close device: ${e.message}`);
+    }
+    throw new UsbError(`${operation} timed out after ${timeoutMs}ms`, connection.target, null);
+}
 
 export class Connection {
     /**
@@ -36,14 +78,17 @@ export class Connection {
         
         let result;
         try {
-            result = await this.device.controlTransferIn({
+            result = await withTimeout(this, this.device.controlTransferIn({
                 requestType: 'vendor',
                 recipient: 'interface',
                 request: REQUEST_GET_COMMAND_STATUS,
                 value: 0,
                 index: this.interface.interfaceNumber
-            }, RESPONSE_GET_COMMAND_STATUS_SIZE);
+            }, RESPONSE_GET_COMMAND_STATUS_SIZE), this.timeouts?.commandStatus, 'Get command status');
         } catch (e) {
+            if (e instanceof UsbError) {
+                throw e;
+            }
             throw new UsbError(
                 `Failed to get command status: ${e.message}`,
                 this.target,
@@ -102,15 +147,18 @@ export class Connection {
         // clear HALT on both bulk endpoints if set
         console.log('Sending INTERFACE_RESET');
         try {
-            await this.device.controlTransferOut({
+            await withTimeout(this, this.device.controlTransferOut({
                 requestType: 'vendor',
                 recipient: 'interface',
                 request: REQUEST_RESET,
                 value: 0,
                 index: this.interface.interfaceNumber
-            });
+            }), this.timeouts?.reset, 'Interface reset');
             console.log('Interface reset complete');
         } catch (e) {
+            if (e instanceof UsbError) {
+                throw e;
+            }
             throw new UsbError(
                 `Failed to reset PICOBOOT interface: ${e.message}`,
                 this.target,
@@ -324,9 +372,11 @@ export class Connection {
             );
         }
         
-        console.log(`Erasing flash: addr=0x${addr.toString(16)}, size=${size}`);
-        const cmd = PicobootCmd.flashErase(addr, size);
-        await this.sendCmd(cmd, null);
+        for (let offset = 0; offset < size; offset += FLASH_CHUNK_SIZE) {
+            const len = Math.min(FLASH_CHUNK_SIZE, size - offset);
+            console.log(`Erasing flash: addr=0x${(addr + offset).toString(16)}, size=${len}`);
+            await this.sendCmd(PicobootCmd.flashErase(addr + offset, len), null);
+        }
     }
 
     /**
@@ -352,9 +402,11 @@ export class Connection {
             );
         }
         
-        console.log(`Writing flash: addr=0x${addr.toString(16)}, size=${buf.length}`);
-        const cmd = PicobootCmd.flashWrite(addr, buf.length);
-        await this.sendCmd(cmd, buf);
+        for (let offset = 0; offset < buf.length; offset += FLASH_CHUNK_SIZE) {
+            const chunk = buf.subarray(offset, offset + FLASH_CHUNK_SIZE);
+            console.log(`Writing flash: addr=0x${(addr + offset).toString(16)}, size=${chunk.length}`);
+            await this.sendCmd(PicobootCmd.flashWrite(addr + offset, chunk.length), chunk);
+        }
     }
 
     /**
@@ -371,9 +423,13 @@ export class Connection {
      * @returns {Promise<Uint8Array>}
      */
     async flashRead(addr, size) {
-        console.log(`Reading flash: addr=0x${addr.toString(16)}, size=${size}`);
-        const cmd = PicobootCmd.flashRead(addr, size);
-        return await this.sendCmd(cmd, null);
+        const data = new Uint8Array(size);
+        for (let offset = 0; offset < size; offset += FLASH_CHUNK_SIZE) {
+            const len = Math.min(FLASH_CHUNK_SIZE, size - offset);
+            console.log(`Reading flash: addr=0x${(addr + offset).toString(16)}, size=${len}`);
+            data.set(await this.sendCmd(PicobootCmd.flashRead(addr + offset, len), null), offset);
+        }
+        return data;
     }
 
     /**
@@ -505,7 +561,8 @@ export class Connection {
         
         try {
             console.log(`Performing bulk read: requested=${bufSize}, transferSize=${transferSize}`);
-            const result = await this.device.transferIn(this.inEp, transferSize);
+            const result = await withTimeout(this, this.device.transferIn(this.inEp, transferSize),
+                this.timeouts?.endpoint, 'Bulk read');
             console.log('Bulk read completed');
             
             if (result.status === 'stall') {
@@ -529,6 +586,9 @@ export class Connection {
             return data.slice(0, bufSize);
         } catch (e) {
             console.error('Bulk read error:', e);
+            if (e instanceof UsbError) {
+                throw e;
+            }
             // Windows stall path
             //await this.checkAndClearHalts();
             throw new UsbError(
@@ -546,7 +606,8 @@ export class Connection {
      */
     async bulkWrite(data, check) {
         try {
-            const result = await this.device.transferOut(this.outEp, data);
+            const result = await withTimeout(this, this.device.transferOut(this.outEp, data),
+                this.timeouts?.endpoint, 'Bulk write');
             
             if (result.status === 'stall') {
                 // Linux/macOS
@@ -569,6 +630,9 @@ export class Connection {
             return result.bytesWritten;
         } catch (e) {
             console.error('Bulk write error:', e);
+            if (e instanceof UsbError) {
+                throw e;
+            }
             // Windows stall path
             //await this.checkAndClearHalts();
             throw new UsbError(

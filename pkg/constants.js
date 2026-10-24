@@ -7,6 +7,8 @@ export const ROM_END_RP2040 = 0x00004000;
 export const ROM_END_RP2350 = 0x00008000;
 
 export const FLASH_START = 0x10000000;
+export const FLASH_END_RP2040 = 0x11000000;
+export const FLASH_END_RP2350 = 0x12000000;
 
 export const XIP_SRAM_START_RP2040 = 0x15000000;
 export const XIP_SRAM_END_RP2040 = 0x15004000;
@@ -19,6 +21,11 @@ export const SRAM_END_RP2350 = 0x20082000;
 
 export const PAGE_SIZE = 0x100;
 export const SECTOR_SIZE = 0x1000;
+
+// Maximum bytes per flash read, write or erase command. A larger command may
+// exceed the endpoint timeout or hang.
+export const FLASH_CHUNK_SIZE = 0x10000;
+
 export const STACK_POINTER_RP2040 = SRAM_END_RP2040;
 export const STACK_POINTER_RP2350 = SRAM_END_RP2350;
 

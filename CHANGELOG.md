@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-10-23
+
+Flash reads, writes and erases are sent as 64KB commands to avoid a hang with a large one with some USB stacks.
+
+The timeouts set by `setTimeouts()`, or passed to `requestDevice()`, `getDevices()` and `fromDevice()`, are now applied. A transfer that times out closes the device and throws `UsbError`. `isConnected()` then returns `false` and the next `Picoboot` call reconnects.
+
+`FLASH_END_RP2040` and `FLASH_END_RP2350` are now defined. `index.js` exported them without a definition, so importing it failed.
+
 ## [0.1.4] - 2026-09-30
 
 A stalled write now clears the OUT endpoint. It cleared IN, so every later command failed until the interface was reset.
