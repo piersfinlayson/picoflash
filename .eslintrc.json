@@ -1,0 +1,15 @@
+{
+    "parser": "@typescript-eslint/parser",
+    "parserOptions": {
+        "project": "./tsconfig.json"
+    },
+    "plugins": ["@typescript-eslint"],
+    "rules": {
+        "@typescript-eslint/no-floating-promises": "error",
+        "@typescript-eslint/no-misused-promises": ["error", {
+            "checksVoidReturn": false
+        }],  // Catches promises in conditionals, spreading, etc.
+        "@typescript-eslint/require-await": "warn",          // Functions marked async but don't await
+        "@typescript-eslint/promise-function-async": "error" // Functions returning promises should be async
+    }
+}

@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/style.css">
+    <link rel="shortcut icon" href="/images/favicon.png" type="image/x-icon" />
+
+    <!-- SEO title & description -->
+    <title>pico⚡flash</title>
+    <meta name="description" content="Lightning fast Pico flashing from your browser">
+    <link rel="canonical" href="https://picoflash.org/" />
+
+    <!-- Open Graph for social media -->
+    <meta property="og:url" content="https://picoflash.org/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="pico⚡flash">
+    <meta property="og:description" content="Lightning fast Pico flashing from your browser">
+    <meta property="og:image" content="/images/picoflash%20image%20social.png">
+
+    <!-- Twitter Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="https://picoflash.org/">
+    <meta name="twitter:title" content="pico⚡flash">
+    <meta name="twitter:description" content="Lightning fast Pico flashing from your browser">
+    <meta name="twitter:image" content="/images/picoflash%20image%20social.png">
+</head>
+
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>pico⚡flash</h1>
+            <p class="subtitle">Lightning fast Pico flashing from your browser</p>
+        </header>
+
+        <br>
+
+        <section class="connection">
+            <div class="connection-row">
+                <div class="connection-controls">
+                    <button id="connectBtn" class="btn btn-primary" data-tooltip="Connect to an RP-based device">Connect</button>
+                    <button id="deviceIdsToggle" class="btn btn-disclosure" aria-expanded="false" aria-controls="deviceIds" data-tooltip="Look for a device with different USB IDs"><span class="disclosure-glyph">&rsaquo;</span></button>
+                </div>
+            </div>
+
+            <div class="connection-row">
+                <div id="deviceIds" class="device-ids hidden">
+                    <div class="device-id-field">
+                        <label for="customVid">Vendor ID</label>
+                        <span class="hex-prefix">0x</span>
+                        <input type="text" id="customVid" class="input input-hex" maxlength="4" placeholder="1209" autocomplete="off" spellcheck="false">
+                    </div>
+                    <div class="device-id-field">
+                        <label for="customPid">Product ID</label>
+                        <span class="hex-prefix">0x</span>
+                        <input type="text" id="customPid" class="input input-hex" maxlength="4" placeholder="f542" autocomplete="off" spellcheck="false">
+                    </div>
+                </div>
+            </div>
+
+            <div class="connection-row">
+                <div id="deviceStatus" class="device-status hidden">
+                    <div class="status-item">
+                        <span class="status-label">Device:</span>
+                        <span id="deviceModel" class="status-value">-</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Serial:</span>
+                        <span id="deviceSerial" class="status-value">-</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">State:</span>
+                        <span id="deviceState" class="status-value">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="progressSection" class="progress-section">
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill"></div>
+                </div>
+            </div>
+        </section>
+
+        <span class="hr"></span>
+
+        <br>
+
+        <section class="tabs">
+            <div class="tab-buttons">
+                <button id="flashTabBtn" class="tab-btn active" data-tab="flash" data-tooltip="Simple firmware flash">Flash</button>
+                <button id="advancedTabBtn" class="tab-btn" data-tab="advanced" data-tooltip="Advanced erase/read/write and other operations">Advanced</button>
+                <button id="otpTabBtn" class="tab-btn" data-tab="otp" data-tooltip="One Time Programmable memory operations">OTP</button>
+            </div>
+
+            <div class="tab-content">
+                <!-- Flash Tab -->
+                <div id="flashTab" class="tab-panel active">
+                    <div class="drop-zone" id="dropZone">
+                        <div id="fileInfo" class="file-info hidden">
+                            <p id="fileName" class="file-text"></p>
+                            <p id="fileSize" class="file-text"></p>
+                        </div>
+                        <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                        </svg>
+                        <p class="drop-text">Drop .uf2 or .bin file here</p>
+                        <p class="drop-subtext">or click to browse</p>
+                        <input type="file" id="fileInput" accept=".uf2,.bin" hidden>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button id="activityToggle" class="btn btn-primary" data-tooltip="Hide/show the log pane">Hide Logs</button>
+                        <button id="flashBtn" class="btn btn-primary" data-tooltip="Flash uploaded firmware to the connected device">Flash Device</button>
+                        <button id="rebootBtn" class="btn btn-primary" data-tooltip="Reboot the connected device to load from flash">Reboot</button>
+                    </div>
+                </div>
+
+                <!-- Advanced Tab -->
+                <div id="advancedTab" class="tab-panel">
+                    <div class="form-group">
+                        <h3>Read Flash or RAM</h3>
+                        <div class="form-row">
+                            <input type="text" id="readAddr" placeholder="Address (hex)" class="input">
+                            <input type="text" id="readLength" placeholder="Length (bytes)" class="input">
+                            <button id="readFlashBtn" class="btn btn-primary" data-tooltip="Read data from flash, RAM or ROM" disabled>Read</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <h3>Write Flash (no erase)</h3>
+                        <div class="form-row">
+                            <input type="text" id="writeAddr" placeholder="Address (hex)" class="input">
+                            <input type="file" id="writeFile" class="input-file" style="display: none;" accept=".bin">
+                            <button id="advWriteFileBtn" class="btn btn-primary" data-tooltip="Choose a binary file to write to flash">
+                                Choose File
+                            </button>
+                            <button id="writeFlashBtn" class="btn btn-primary" data-tooltip="Write the selected file to flash" disabled>Write</button>
+                        </div>
+                        <div class="form-row">
+                            <span></span>
+                            <span id="advWriteFileName" class="file-name">No file selected</span>
+                            <span></span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <h3>Erase Flash</h3>
+                        <div class="form-row">
+                            <input type="text" id="eraseAddr" placeholder="Address (hex)" class="input">
+                            <input type="text" id="eraseLength" placeholder="Length (bytes)" class="input">
+                            <button id="eraseFlashBtn" class="btn btn-primary" data-tooltip="Erase flash memory at the specified address" disabled>Erase</button>
+                        </div>
+                    </div>
+
+                    <div id="rp2040-notes" class="form-group hidden">
+                        <h3>RP2040 Notes</h3>
+                        <div class="form-text">
+                            <p>Reboot into BOOTSEL is unavailable on the RP2040</p>
+                            <p>No OTP support</p>
+                        </div>
+                    </div>
+                    <div id="rp2350-notes" class="form-group hidden">
+                        <h3>RP2350 Notes</h3>
+                        <div class="form-text">
+                            <p>None</p>
+                        </div>
+                    </div>
+                    <div id="custom-notes" class="form-group">
+                        <h3>Device Notes</h3>
+                        <div class="form-text">
+                            <p>Reboot into BOOTSEL is unavailable when the device type is unknown</p>
+                            <p>OTP is only available on RP2350/Pico 2</p>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <h3>Other Operations</h3>
+                        <div class="button-grid">
+                            <button id="enterXipBtn" class="btn btn-primary" data-tooltip="Enter XIP to disable pico⚡flash flash operations on the RP2040 and some RP2350 boards" disabled>Enter XIP</button>
+                            <button id="exitXipBtn" class="btn btn-primary" data-tooltip="Exit XIP to enable pico⚡flash operations on the RP2040 and some RP2350 boards" disabled>Exit XIP</button>
+                            <button id="rebootNormalBtn" class="btn btn-primary" data-tooltip="Reboot device into normal mode" disabled>Reboot Normal</button>
+                            <button id="rebootBootselBtn" class="btn btn-primary" data-tooltip-tr="Reboot device into BOOTSEL mode" disabled>Reboot BOOTSEL</button>
+                            <button id="advActivityToggle" class="btn btn-primary" data-tooltip="Hide the logs">Hide Logs</button>
+                            <button id="notExclusiveBtn" class="btn btn-primary" data-tooltip="Revoke any exclusive claim to the device" disabled>Not Exclusive</button>
+                            <button id="exclusiveBtn" class="btn btn-primary" data-tooltip="Claim exclusive access to the device" disabled>Exclusive Access</button>
+                            <button id="exclusiveEjectBtn" class="btn btn-primary" data-tooltip="Claim exclusive access and eject USB mass storage device" disabled>Exclusive + Eject</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- OTP Tab -->
+                <div id="otpTab" class="tab-panel">
+                    <div class="warning-box">
+                        <svg class="warning-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 1.5L0.5 22.5h23L12 1.5z"/>
+                            <line x1="12" y1="7" x2="12" y2="15"/>
+                            <circle cx="12" cy="18" r="0.8"/>
+                        </svg>
+                        <div>
+                            <p class="warning-title">One-Time Programmable Memory</p>
+                            <p class="warning-text">OTP writes are permanent and cannot be undone. Incorrect values may brick your device.</p>
+                            <p class="warning-text">RP2350/Pico 2 only</p>
+                        </div>
+                        <div></div>
+                    </div>
+
+                    <div class="form-group">
+                        <h3>Read OTP</h3>
+                        <div class="form-row-4">
+                            <label style="grid-column: 3; grid-row: 1; color: var(--color-text-secondary)"><input type="radio" name="readMode" value="ecc" checked> ECC</label>
+                            <label style="grid-column: 3; grid-row: 2; color: var(--color-text-secondary)"><input type="radio" name="readMode" value="raw"> Raw</label>
+                            <input type="text" id="oprogReadAddr" placeholder="Row index" class="input row-span" autocomplete="off">
+                            <input type="text" id="oprogReadLength" placeholder="Row count" class="input row-span" autocomplete="off">
+                            <button id="readOtpBtn" class="btn btn-primary row-span" data-tooltip="Read OTP (16/32-bit) rows from the device">Read</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <h3>Write OTP</h3>
+                        <div class="form-row-4">
+                            <label style="grid-column: 3; grid-row: 1; color: var(--color-text-secondary)"><input type="radio" name="writeMode" value="ecc" checked> ECC</label>
+                            <label style="grid-column: 3; grid-row: 2; color: var(--color-text-secondary)"><input type="radio" name="writeMode" value="raw"> Raw</label>
+                            <input type="text" id="oprogWriteAddr" placeholder="Address (hex)" class="input row-span" autocomplete="off">
+                            <input type="text" id="oprogWriteData" placeholder="Data (hex)" class="input row-span" autocomplete="off">
+                            <button id="writeOtpBtn" class="btn btn-danger row-span" data-tooltip="Write OTP row to device - cannot be undone" disabled>Write OTP</button>
+                        </div>
+                        <div class="confirmation-row">
+                            <input type="text" id="oprogConfirm" placeholder="Type 'Write OTP Row' to enable write" class="input" autocomplete="off">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div id="activityLog">
+            <br>
+            <div class="activity-log">
+                <div class="activity-header">
+                    <h3>Logs</h3>
+                </div>
+                <div class="activity-content" id="activityContent"></div>
+            </div>
+        </div>
+    
+        <div id="hexViewer" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="hex-display-title">Data Viewer</h3>
+                    <button class="modal-close" id="closeHexViewer">&times;</button>
+                </div>
+                <div class="hex-display" id="hexDisplay"></div>
+                <div class="modal-footer">
+                    <button id="downloadHexDataBtn" class="btn btn-primary" data-tooltip="Download the displayed data as a binary file">Download</button>
+                </div>
+            </div>
+        </div>
+
+        <br>
+
+        <div id="links" class="hr">
+            <h3>Links</h3>
+            <div class="links">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="var(--color-text-primary)">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+                <a href="https://github.com/piersfinlayson/picoflash" target="_blank">GitHub Repository</a>
+                <span>pico⚡flash source code (MIT licensed)</span>
+
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="#FF0000">
+                    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
+                <a href="https://www.youtube.com/@piers_rocks" target="_blank">YouTube Channel</a>
+                <span>Subscribe for more great open source projects</span>
+
+            </div>
+
+        </div>
+
+        <div id="footer"></div>
+    </div>
+</body>
+
+<script src="/js/site/footer.js"></script>
+
+<script type="module" src="/js/flash/picoflash.js"></script>
+
+<script data-goatcounter="https://picoflash.analytics.piers.rocks/count" async src="//picoflash.analytics.piers.rocks/count.js"></script>
+
+</html>

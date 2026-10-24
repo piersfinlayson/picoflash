@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Picoboot Quick Test</title>
+</head>
+<body>
+    <h1>Picoboot Quick Test</h1>
+    <button id="test">Run Test</button>
+    <pre id="log"></pre>
+
+    <script type="module">
+        import { Picoboot } from '/pkg/picoboot.js';
+
+        const log = document.getElementById('log');
+        const testBtn = document.getElementById('test');
+
+        function println(msg) {
+            console.log(msg);
+            log.textContent += msg + '\n';
+        }
+
+        testBtn.addEventListener('click', async () => {
+            log.textContent = '';
+            
+            try {
+                println('Requesting device...');
+                const picoboot = await Picoboot.requestDevice();
+                println(`Selected: ${picoboot.getTarget().toString()}`);
+
+                println('Connecting...');
+                const conn = await picoboot.connect();
+                println('Connected');
+
+                println('Resetting interface...');
+                await conn.resetInterface();
+                println('Reset complete');
+
+                println('Getting command status...');
+                const status = await conn.getCommandStatus();
+                println(`Command Status: ${JSON.stringify(status)}`);
+
+                println('Reading 256 bytes...');
+                const data = await conn.flashReadStart(256);
+                println(`Read ${data.length} bytes`);
+                
+                const hex = Array.from(data.slice(0, 16))
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join(' ');
+                println(`First 16 bytes: ${hex}`);
+
+                println('Disconnecting...');
+                await picoboot.disconnect();
+                println('Done');
+
+            } catch (e) {
+                println(`ERROR: ${e.message}`);
+                console.error(e);
+            }
+        });
+    </script>
+</body>
+</html>
